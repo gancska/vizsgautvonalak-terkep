@@ -1,0 +1,47 @@
+name: Update OSM data
+
+on:
+  workflow_dispatch:        # manual "Run workflow" button
+  schedule:
+    - cron: "0 4 * * 1"     # every Monday 04:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download from Overpass (with mirrors and retries)
+        run: |
+          set -e
+          mkdir -p data
+          fetch () {
+            q="$1"; out="$2"
+            for i in 1 2 3; do
+              for ep in https://overpass-api.de/api/interpreter \
+                        https://overpass.private.coffee/api/interpreter \
+                        https://overpass.kumi.systems/api/interpreter; do
+                echo "Trying $ep for $out (round $i)"
+                if curl -sS --fail --max-time 300 --data-urlencode "data@$q" "$ep" -o "$out.tmp" \
+                   && jq -e '.elements | length > 0' "$out.tmp" > /dev/null; then
+                  mv "$out.tmp" "$out"; echo "OK: $out"; return 0
+                fi
+                sleep 20
+              done
+            done
+            echo "FAILED: $out"; return 1
+          }
+          fetch queries/roads.overpassql data/osm-roads.json
+          fetch queries/bg.overpassql data/osm-bg.json || echo "Background skipped"
+          ls -lh data
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Update OSM data $(date -u +%F)"
+          git push
