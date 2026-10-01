@@ -1,0 +1,1 @@
+[out:json][timeout:120];(way["natural"="water"](47.4,19.08,47.535,19.32);way["leisure"="park"](47.4,19.08,47.535,19.32);way["landuse"~"^(forest|grass|cemetery|recreation_ground|meadow)$"](47.4,19.08,47.535,19.32);way["railway"="rail"](47.4,19.08,47.535,19.32););out body;>;out skel qt;

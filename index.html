@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vizsgaútvonalak – Kozma u. 3 (F/BP/289–306)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1d2228;--muted:#5d6670;--line:#d9dde1;--paper:#fff;--sign-blue:#0b4ea2;--sign-red:#c8102e;--bg:#f3f4f5}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font-family:Barlow,"Segoe UI",Arial,sans-serif;color:var(--ink);background:var(--bg)}
+#app{display:grid;grid-template-columns:360px minmax(0,1fr);height:100%}
+aside{background:var(--paper);border-right:1px solid var(--line);overflow:auto;display:flex;flex-direction:column}
+header{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:600;font-size:24px;line-height:1.1;margin:0 0 4px}
+.sub{color:var(--muted);font-size:14px;margin:0}
+#status{margin:10px 0 0;font-size:14px;padding:8px 10px;border-radius:6px;background:#eef3fb;color:#0b3a78}
+#status.err{background:#fdeceе;background:#fdecee;color:#8a0c20}
+#status a{color:inherit;font-weight:600}
+#status.ok{background:#eaf5ec;color:#1e5e2c}
+.group{padding:12px 18px;border-bottom:1px solid var(--line)}
+.group h2{font-size:15px;font-weight:600;margin:0 0 8px}
+.row{display:flex;align-items:center;gap:8px;font-size:14px;margin:4px 0}
+.row label{display:flex;align-items:center;gap:8px;cursor:pointer}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+button{font:inherit;font-size:13px;padding:5px 10px;border:1px solid #b9c0c7;background:#fff;border-radius:5px;cursor:pointer;color:var(--ink)}
+button:hover{background:#f1f3f5}
+button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outline-offset:2px}
+.legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;font-size:13px}
+.lg{display:flex;align-items:center;gap:6px}
+.sw{width:22px;height:8px;border-radius:2px;flex:none}
+.signmini{width:20px;height:20px;border-radius:50%;border:3px solid var(--sign-red);background:#fff;font:600 10px/14px Barlow,sans-serif;text-align:center;color:#111;flex:none}
+#routes{list-style:none;margin:0;padding:0}
+#routes li{border-bottom:1px solid var(--line);padding:9px 18px;cursor:pointer}
+#routes li:hover{background:#f7f8f9}
+#routes li.sel{background:#eef3fb}
+.rh{display:flex;align-items:center;gap:8px}
+.rh input{margin:0}
+.code{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:600;font-size:17px}
+.cat{font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px;background:#eceff1;color:#37474f}
+.km{margin-left:auto;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.seq{font-size:12.5px;color:var(--muted);margin:4px 0 0 30px;line-height:1.45}
+.seq .miss{color:#a10f25;text-decoration:underline dotted}
+.warn{font-size:12px;color:#8a5a00;margin:3px 0 0 30px}
+#map{height:100%;background:#f4f5f6}
+.arrow,.chev,.sign{background:none;border:none}
+.arrow svg,.chev svg{display:block}
+.sign div{width:26px;height:26px;border-radius:50%;border:4px solid var(--sign-red);background:#fff;font:600 11px/18px Barlow,sans-serif;text-align:center;color:#111;box-shadow:0 0 0 1px #fff}
+.z13 .arrow,.z13 .chev,.z13 .sign,.z14 .chev{display:none}
+.lbl{background:none;border:none}.lbl span{display:inline-block;transform:translate(-50%,-50%);white-space:nowrap;font:500 12px Barlow,sans-serif;color:#3a4048;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
+.leaflet-tooltip{font-family:Barlow,sans-serif;font-size:13px}
+.leaflet-popup-content{font-family:Barlow,sans-serif;font-size:13px}
+@media (max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:55% 45%}aside{order:2;border-right:none;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <header>
+    <h1>Forgalmi vizsgaútvonalak</h1>
+    <p class="sub">Safety-Hungary, 1108 Kozma u. 3 · F/BP/289–306 · OpenStreetMap-adatok alapján</p>
+    <div id="status">Adatok betöltése…</div>
+  </header>
+  <div class="group">
+    <h2>Rétegek</h2>
+    <div class="row"><label><input type="checkbox" id="tSpeed" checked> Sebességkorlátozások</label></div>
+    <div class="row"><label><input type="checkbox" id="tOneway" checked> Egyirányú utcák (fekete szaggatott + nyíl a megengedett irányba)</label></div>
+    <div class="row"><label><input type="checkbox" id="tScope"> Teljes környék (nem csak az útvonalak utcái)</label></div>
+    <div class="row"><label><input type="checkbox" id="tAM" checked> AM kategória útvonalai</label></div>
+    <div class="btns">
+      <button id="bAll">Összes útvonal</button>
+      <button id="bNone">Egyik sem</button>
+      <button id="bGpx">GPX letöltése</button>
+      <button id="bReload">Adatok frissítése</button>
+      <button id="bFile">OSM-fájl betöltése</button>
+      <input type="file" id="fFile" accept=".json,application/json,.txt" multiple hidden>
+    </div>
+  </div>
+  <div class="group">
+    <h2>Jelmagyarázat</h2>
+    <div class="legend" id="legend"></div>
+  </div>
+  <ul id="routes"></ul>
+</aside>
+<div id="map"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script id="core">
+const START = {lat:47.48366, lon:19.17518};
+const BBOX = [47.400, 19.080, 47.535, 19.320];
+const ROUTES = [
+ {code:'F/BP/289',cat:'A1/A2/A',items:['Kozma u.','Helikopter út','Szilárd u.','Szabadság u.','Ferihegyi út','Gyökér u.','Bakancsos u.','Széchenyi u.','Borsó u.','Pesti út','Kozma u.']},
+ {code:'F/BP/290',cat:'A1/A2/A',items:['Kozma u.','Borsó u.','Széchenyi u.','Ásvány u.','Felsőbánya u.','Ferihegyi út','Pesti út','Kozma u.']},
+ {code:'F/BP/291',cat:'A1/A2/A',items:['Kozma u.','Jászberényi út','Szent László tér','Kolozsvári u.','Sörgyár u.','Sibrik Miklós u.','Kozma u.']},
+ {code:'F/BP/292',cat:'A1/A2/A',items:['Kozma u.','Gitár u.','Harmat u.','Kőrösi Csoma S. út','Halom u.','Kápolna tér','Kőér u.','Kozma u.']},
+ {code:'F/BP/293',cat:'A1/A2/A',items:['Kozma u.','Gyömrői út','Ráday Gedeon u.','Nefelejcs u.','Thököly út','Kozma u.']},
+ {code:'F/BP/294',cat:'A1/A2/A',items:['Kozma u.','Felsőcsatári út','Liszt Ferenc Nemzetközi Repülőtér','Kozma u.']},
+ {code:'F/BP/295',cat:'A1/A2/A',items:['Kozma u.','Felsőcsatári út','Gyömrői út','Csévéző u.','Nimród u.','Árpád u.','Hangár u.','Újhegyi u.','Kozma u.']},
+ {code:'F/BP/296',cat:'A1/A2/A',items:['Kozma u.','Gitár u.','Maglódi út','Téglavető u.','Harmat u.','Lavotta u.','Mádi u.','Gitár u.','Óhegy u.','Sibrik Miklós út','Sírkert u.','Kozma u.']},
+ {code:'F/BP/297',cat:'A1/A2/A',items:['Kozma u.','Jászberényi út','Akadémiaújtelep','Pesti út','513.u.','Újlak u.','Borsó u.','Széchenyi u.','Bakancsos u.','Kozma u.']},
+ {code:'F/BP/298',cat:'A1/A2/A',items:['Kozma u.','Újhegyi út','Kovakő u.','Korall u.','Mádi u.','Kada u.','Gyömrői út','Ajtony u.','Kozma u.']},
+ {code:'F/BP/299',cat:'A1/A2/A',items:['Kozma u.','Maglódi út','Fehér köz','Kőrösi Csoma Sándor út','Harmat u.','Kolozsvári u.','Bánya u.','Szent László tér','Kozma u.']},
+ {code:'F/BP/300',cat:'A1/A2/A',items:['Kozma u.','Jászberényi út','Örs vezér tere','Kaffka Margit u.','Bolgárkertész u.','Kozma u.']},
+ {code:'F/BP/301',cat:'A1/A2/A',items:['Kozma u.','Sibrik M. felüljáró','Üllői út','Szigligeti u.','Derkovics Gy.u.','Felsőcsatári út','Kozma u.']},
+ {code:'F/BP/302',cat:'A1/A2/A',items:['Kozma u.','Újhegyi út','Harmat u.','Tavas u.','Bányató u.','Sibrik M. út','Kozma u.']},
+ {code:'F/BP/303',cat:'A1/A2/A',items:['Kozma u.','Maglódi út','Fagyal u.','Sellő u.','Mádi u.','Harmat u.','Sibrik M. út','Gergely u.','Hangár u.','Kozma u.']},
+ {code:'F/BP/304',cat:'AM',items:['Kozma u.','Gitár u.','Liget u.','Kozma u.']},
+ {code:'F/BP/305',cat:'AM',items:['Kozma u.','Mádi u.','Harmat u.','Kozma u.']},
+ {code:'F/BP/306',cat:'AM',items:['Kozma u.','Álmos u.','Felsőcsatári út','Kozma u.']}
+];
+const COLORS = ['#d62828','#1d4ed8','#2b9348','#f77f00','#7b2cbf','#0096c7','#c2185b','#8d6e63','#00897b','#3f51b5','#9e9d24','#ef476f','#455a64','#b8860b','#06a77d','#1d4ed8','#2b9348','#f77f00'];
+
+const ALIAS = {
+ 'Sibrik M. felüljáró':['Sibrik Miklós út','Sibrik Miklós úti felüljáró','Sibrik Miklós felüljáró'],
+ 'Sibrik M. út':['Sibrik Miklós út'], 'Sibrik Miklós u.':['Sibrik Miklós út','Sibrik Miklós utca'],
+ 'Derkovics Gy.u.':['Derkovits Gyula utca','Derkovics Gyula utca'],
+ 'Kőrösi Csoma S. út':['Kőrösi Csoma Sándor út'],
+ '513.u.':['513. utca','513 utca'],
+ 'Újhegyi u.':['Újhegyi út','Újhegyi utca'],
+ 'Fehér köz':['Fehér köz','Fehér út','Fehér utca'],
+ 'Sírkert u.':['Sírkert utca','Sírkert út'],
+ 'Kápolna tér':['Kápolna tér','Kápolna utca'],
+ 'Szent László tér':['Szent László tér']
+};
+const POI = {'Liszt Ferenc Nemzetközi Repülőtér':'airport','Akadémiaújtelep':'place'};
+const SUFFIX = /\s+(utca|ut|utja|ter|tere|koz|sor|setany|park|feluljaro)$/;
+
+const norm = s => s.normalize('NFC').toLowerCase().replace(/\s+/g,' ').trim();
+const fold = s => norm(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+function candidates(label){
+  if (ALIAS[label]) return ALIAS[label];
+  let s = label.replace(/\s*u\.$/,' utca').replace(/\s+/g,' ').trim();
+  return [s];
+}
+function hav(a,b,c,d){const R=6371000,r=Math.PI/180,x=(c-a)*r,y=(d-b)*r;const h=Math.sin(x/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+
+function parseSpeed(v){
+  if(!v) return null; v=String(v).trim();
+  const m=v.match(/^(\d+)/); if(m) return +m[1];
+  const t={'hu:urban':50,'hu:rural':90,'hu:living_street':20,'hu:zone30':30,'hu:zone:30':30,'walk':10,'hu:motorway':130,'hu:trunk':110};
+  return t[v.toLowerCase()]??null;
+}
+function wayLimit(tags){
+  const f=parseSpeed(tags['maxspeed:forward']), b=parseSpeed(tags['maxspeed:backward']);
+  let s=parseSpeed(tags.maxspeed);
+  if(s==null && (f!=null||b!=null)) s=Math.min(f??999,b??999);
+  if(s==null) s=parseSpeed(tags['zone:maxspeed']||tags['maxspeed:type']);
+  if(s==null && tags.highway==='living_street') s=20;
+  return s;
+}
+function onewayDir(t){
+  const o=(t.oneway||'').toLowerCase();
+  if(o==='yes'||o==='1'||o==='true') return 1;
+  if(o==='-1'||o==='reverse') return -1;
+  if(o==='no') return 0;
+  if(t.junction==='roundabout'||t.junction==='circular') return 1;
+  if(t.highway==='motorway') return 1;
+  return 0;
+}
+function drivable(t){
+  const ok=v=>['yes','destination','permissive','designated'].includes(v);
+  if(t.motorcycle==='no'||t.motor_vehicle==='no'||t.vehicle==='no') return ok(t.motorcycle);
+  if(t.access==='no'||t.access==='private') return ok(t.motorcycle)||ok(t.motor_vehicle);
+  if(t.area==='yes') return false;
+  return true;
+}
+
+function buildGraph(elements){
+  const nodes=new Map(), ways=[], pois=[], bg=[];
+  for(const e of elements){
+    if(e.type==='node' && e.lat!=null){ if(!nodes.has(e.id)) nodes.set(e.id,[e.lat,e.lon]); }
+  }
+  for(const e of elements){
+    const t=e.tags||{};
+    if(t.aeroway||t.place){
+      const c=e.type==='node'?{lat:e.lat,lon:e.lon}:e.center; if(c) pois.push({tags:t,lat:c.lat,lon:c.lon});
+      continue;
+    }
+    if(e.type==='way'&&!t.highway&&e.nodes&&(t.natural||t.leisure||t.landuse||t.railway)){const c=e.nodes.map(id=>nodes.get(id)).filter(Boolean);if(c.length>1)bg.push({t,c});continue;}
+    if(e.type!=='way'||!t.highway||!e.nodes||!drivable(t)) continue;
+    const names=new Set();
+    for(const k of ['name','alt_name','official_name','name:hu','bridge:name','short_name']) if(t[k]) t[k].split(';').forEach(n=>names.add(norm(n)));
+    ways.push({id:e.id,tags:t,nodes:e.nodes,names,fnames:new Set([...names].map(fold)),dir:onewayDir(t),limit:wayLimit(t)});
+  }
+  const idx=new Map(), lat=[], lon=[];
+  const getIdx=id=>{let i=idx.get(id);if(i===undefined){const p=nodes.get(id);if(!p)return -1;i=lat.length;idx.set(id,i);lat.push(p[0]);lon.push(p[1]);}return i;};
+  const E=[];
+  ways.forEach((w,wi)=>{
+    w.idx=w.nodes.map(getIdx);
+    const tf={service:1.6,living_street:1.4,residential:1.1}[w.tags.highway]||1;
+    for(let k=0;k+1<w.idx.length;k++){
+      const a=w.idx[k],b=w.idx[k+1]; if(a<0||b<0) continue;
+      const len=hav(lat[a],lon[a],lat[b],lon[b]);
+      if(w.dir>=0) E.push([a,b,len*tf,len,wi,1]); else E.push([a,b,len*tf,len,wi,0]);
+      if(w.dir<=0) E.push([b,a,len*tf,len,wi,1]); else E.push([b,a,len*tf,len,wi,0]);
+    }
+  });
+  const n=lat.length, start=new Int32Array(n+1);
+  for(const e of E) start[e[0]+1]++;
+  for(let i=0;i<n;i++) start[i+1]+=start[i];
+  const pos=start.slice(0,n), to=new Int32Array(E.length), cost=new Float64Array(E.length), len=new Float64Array(E.length), way=new Int32Array(E.length), legal=new Uint8Array(E.length);
+  for(const e of E){const p=pos[e[0]]++;to[p]=e[1];cost[p]=e[2];len[p]=e[3];way[p]=e[4];legal[p]=e[5];}
+  return {bg,n,lat:Float64Array.from(lat),lon:Float64Array.from(lon),start,to,cost,len,way,legal,ways,pois};
+}
+
+function matchWays(G,label){
+  const cands=candidates(label);
+  let hit=new Set(), used=null;
+  const tryF=(pred,tag)=>{ if(hit.size) return; G.ways.forEach((w,i)=>{if(pred(w))hit.add(i);}); if(hit.size) used=tag; };
+  const nk=cands.map(norm), fk=cands.map(fold);
+  tryF(w=>nk.some(k=>w.names.has(k)),'exact');
+  tryF(w=>fk.some(k=>w.fnames.has(k)),'ékezet nélkül');
+  const bases=fk.map(k=>k.replace(SUFFIX,''));
+  tryF(w=>[...w.fnames].some(n=>bases.includes(n.replace(SUFFIX,''))),'más utótag');
+  return {ways:hit,how:used};
+}
+function nodesOf(G,wset){const s=new Set();for(const wi of wset)for(const i of G.ways[wi].idx)if(i>=0)s.add(i);return s;}
+function nearestNode(G,lat,lon,within){
+  let best=-1,bd=Infinity;
+  const deg=i=>G.start[i+1]-G.start[i];
+  const it=within?within:{[Symbol.iterator]:function*(){for(let i=0;i<G.n;i++)yield i;}};
+  for(const i of it){ if(!deg(i)) continue; const d=hav(lat,lon,G.lat[i],G.lon[i]); if(d<bd){bd=d;best=i;} }
+  return best;
+}
+
+function dijkstra(G,src,targets,pref,allowIllegal,firstOnPref){
+  const n=G.n, dist=new Float64Array(n).fill(Infinity), prevE=new Int32Array(n).fill(-1);
+  const hk=[],hv=[];
+  const push=(k,v)=>{hk.push(k);hv.push(v);let i=hk.length-1;while(i>0){const p=(i-1)>>1;if(hk[p]<=hk[i])break;[hk[p],hk[i]]=[hk[i],hk[p]];[hv[p],hv[i]]=[hv[i],hv[p]];i=p;}};
+  const pop=()=>{const k=hk[0],v=hv[0];const lk=hk.pop(),lv=hv.pop();if(hk.length){hk[0]=lk;hv[0]=lv;let i=0;for(;;){let l=2*i+1,r=l+1,m=i;if(l<hk.length&&hk[l]<hk[m])m=l;if(r<hk.length&&hk[r]<hk[m])m=r;if(m===i)break;[hk[m],hk[i]]=[hk[i],hk[m]];[hv[m],hv[i]]=[hv[i],hv[m]];i=m;}}return [k,v];};
+  dist[src]=0; push(0,src);
+  while(hk.length){
+    const [d,u]=pop(); if(d>dist[u]) continue;
+    if(targets.has(u)){
+      const path=[u], edges=[]; let x=u;
+      while(prevE[x]>=0){const e=prevE[x];edges.push(e);x=edgeFrom[e];path.push(x);}
+      path.reverse(); edges.reverse(); return {node:u,path,edges};
+    }
+    for(let e=G.start[u];e<G.start[u+1];e++){
+      if(!G.legal[e]&&!allowIllegal) continue;
+      if(firstOnPref&&u===src&&!pref.has(G.way[e])) continue;
+      let c=G.cost[e]*(pref.has(G.way[e])?1:2.5)*(G.legal[e]?1:12);
+      const v=G.to[e], nd=d+c;
+      if(nd<dist[v]){dist[v]=nd;prevE[v]=e;edgeFrom[e]=u;push(nd,v);}
+    }
+  }
+  return null;
+}
+let edgeFrom=null;
+
+function resolveRoute(G,route,startNode,kozmaWays){
+  const steps=route.items.map(label=>{
+    if(POI[label]) return {label,poi:POI[label]};
+    const m=matchWays(G,label); return {label,ways:m.ways,how:m.how};
+  });
+  const nodesPath=[startNode], edgesAll=[], warns=[];
+  let cur=startNode, prevStep=steps[0];
+  const missing=new Set();
+  const runLeg=(targets,pref,label)=>{
+    if(targets.has(cur)) return true;
+    let onPref=false; for(let e=G.start[cur];e<G.start[cur+1];e++) if(pref.has(G.way[e])) onPref=true;
+    let r=dijkstra(G,cur,targets,pref,false,onPref);
+    if(!r&&onPref){ r=dijkstra(G,cur,targets,pref,false,false); if(r) warns.push(`${label}: az előző utcán egyirányú miatt nem folytatható, kerülővel számolva – ellenőrizd`); }
+    if(!r){ r=dijkstra(G,cur,targets,pref,true,onPref); if(r) warns.push(`${label}: csak egyirányú szabály megsértésével érhető el – ellenőrizd`); }
+    if(!r){ warns.push(`${label}: nem található útvonal`); return false; }
+    let L=0; for(const e of r.edges) L+=G.len[e];
+    if(L>7000) warns.push(`${label}: hosszú szakasz (${(L/1000).toFixed(1)} km) – lehet, hogy rossz azonos nevű utcát talált`);
+    for(const e of r.edges) edgesAll.push(e);
+    nodesPath.push(...r.path.slice(1)); cur=r.node; return true;
+  };
+  for(let i=1;i<steps.length;i++){
+    const s=steps[i];
+    if(!s.poi && !s.ways.size){ missing.add(i); continue; }
+    const pref=prevStep.ways||new Set();
+    let targets;
+    if(s.poi){
+      let p=null;
+      if(s.poi==='airport'){
+        const terms=G.pois.filter(p=>p.tags.aeroway==='terminal');
+        p=terms.find(t=>/2/.test(t.tags.name||t.tags.ref||''))||terms[0]||G.pois.find(t=>t.tags.aeroway==='aerodrome');
+      } else p=G.pois.find(t=>t.tags.place && fold(t.tags.name||'')===fold(s.label));
+      if(!p){ missing.add(i); continue; }
+      targets=new Set([nearestNode(G,p.lat,p.lon)]);
+    } else {
+      const B=nodesOf(G,s.ways);
+      targets=B;
+      if(prevStep.ways){ const A=nodesOf(G,prevStep.ways); const J=new Set([...A].filter(x=>B.has(x))); if(J.size) targets=J; }
+    }
+    if(runLeg(targets,pref,s.label)) prevStep=s;
+  }
+  runLeg(new Set([startNode]),kozmaWays,'vissza a telephelyre');
+  let total=0; for(const e of edgesAll) total+=G.len[e];
+  return {steps,missing,nodesPath,edges:edgesAll,warns,total};
+}
+function prepare(G){ edgeFrom=new Int32Array(G.to.length); }
+</script>
+
+<script>
+const $=id=>document.getElementById(id);
+const statusEl=$('status');
+const setStatus=(t,c='')=>{statusEl.textContent=t;statusEl.className=c;};
+
+const map=L.map('map',{preferCanvas:true,zoomControl:true}).setView([START.lat,START.lon],13);
+const BASE={
+ 'Esri – világosszürke':L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:16,maxNativeZoom:16,attribution:'Tiles &copy; Esri'}),
+ 'Esri – utcatérkép':L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'}),
+ 'OpenStreetMap':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap közreműködők'}),
+ 'OSM Humanitarian':L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',{maxZoom:19,subdomains:'abc',attribution:'&copy; OpenStreetMap közreműködők, HOT'}),
+ 'Nincs háttér':L.layerGroup()
+};
+const builtin=L.layerGroup().addTo(map);
+const baseCtl=L.control.layers(Object.assign({'Beépített (OSM-adatból)':builtin},BASE),null,{position:'topright',collapsed:false}).addTo(map);
+map.createPane('base').style.zIndex=350;map.createPane('labels').style.zIndex=455;
+['speed','oneway','routes','marks'].forEach((p,i)=>{map.createPane(p).style.zIndex=410+i*10;});
+const zClass=()=>{const z=map.getZoom(),c=map.getContainer();c.classList.toggle('z13',z<14);c.classList.toggle('z14',z<15);};
+map.on('zoomend',zClass); zClass();
+L.marker([START.lat,START.lon]).addTo(map).bindTooltip('Safety-Hungary, Kozma u. 3/A – start és cél');
+
+const SPEEDCOL=s=>s<=20?'#6a040f':s<=30?'#c8102e':s<=40?'#e85d04':s<50?'#f48c06':s===50?null:s<=60?'#1971c2':s<=70?'#5f3dc4':'#0b7285';
+function legend(){
+  const items=[['#6a040f','≤ 20 km/h (lakó-pihenő is)'],['#c8102e','30 km/h'],['#e85d04','40 km/h'],['#1971c2','60 km/h'],['#5f3dc4','70 km/h'],['#0b7285','≥ 80 km/h']];
+  $('legend').innerHTML=items.map(([c,t])=>`<span class="lg"><span class="sw" style="background:${c};opacity:.55"></span>${t}</span>`).join('')+
+  `<span class="lg"><span class="sw" style="background:repeating-linear-gradient(90deg,#111 0 4px,transparent 4px 8px)"></span>Egyirányú</span>`+
+  `<span class="lg"><span class="signmini">30</span>Táblaérték</span>`+
+  `<span class="lg"><span class="sw" style="background:#555"></span>Útvonal (szín/útvonal)</span>`+
+  `<span class="lg"><span class="sw" style="background:repeating-linear-gradient(90deg,#555 0 6px,transparent 6px 10px)"></span>AM útvonal</span>`;
+}
+legend();
+
+const DB='vizsga-osm',STORE='c';
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+async function cacheGet(){try{const d=await idb();return await new Promise(r=>{const q=d.transaction(STORE).objectStore(STORE).get('osm2');q.onsuccess=()=>r(q.result);q.onerror=()=>r(null);});}catch{return null;}}
+async function cacheSet(v){try{const d=await idb();d.transaction(STORE,'readwrite').objectStore(STORE).put(v,'osm2');}catch{}}
+
+const HW='^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|road)$';
+function qRoads(){const b=BBOX.join(',');return `[out:json][timeout:180];(way["highway"~"${HW}"](${b});way["highway"="service"]["name"](${b}););out body;>;out skel qt;(nwr["aeroway"~"^(terminal|aerodrome)$"](${b});nwr["place"]["name"~"Akadémiaújtelep"](${b}););out center tags;`;}
+function qBg(){const b=BBOX.join(',');return `[out:json][timeout:120];(way["natural"="water"](${b});way["leisure"="park"](${b});way["landuse"~"^(forest|grass|cemetery|recreation_ground|meadow)$"](${b});way["railway"="rail"](${b}););out body;>;out skel qt;`;}
+const ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+async function overpass(q,label){
+  const errs=[];
+  for(let round=0;round<2;round++) for(const url of ENDPOINTS){
+    const host=new URL(url).host;
+    try{
+      setStatus(`${label} letöltése (${host})… 20–60 mp is lehet.`);
+      const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),150000);
+      const r=await fetch(url+'?data='+encodeURIComponent(q),{signal:ctl.signal}); clearTimeout(tm);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json(); if(!j.elements) throw new Error('üres válasz'); return j;
+    }catch(e){errs.push(host+': '+(e.name==='AbortError'?'időtúllépés':e.message));}
+    if(round===0) await new Promise(r=>setTimeout(r,3000));
+  }
+  throw new Error(errs.slice(-ENDPOINTS.length).join('; '));
+}
+async function fetchOSM(force){
+  if(!force){const c=await cacheGet(); if(c&&c.elements){setStatus(`OSM-adat a gyorsítótárból (${new Date(c.t).toLocaleDateString('hu-HU')}). Feldolgozás…`);return c;}}
+  if(location.protocol.startsWith('http')){
+    try{
+      setStatus('OSM-adat betöltése az oldal mellől (data/)…');
+      const r=await fetch('data/osm-roads.json',{cache:'no-cache'});
+      if(r.ok){const roads=await r.json();let bgEl=[];
+        try{const b=await fetch('data/osm-bg.json',{cache:'no-cache'});if(b.ok)bgEl=(await b.json()).elements||[];}catch{}
+        const j={elements:roads.elements.concat(bgEl),t:Date.now()}; cacheSet(j); return j;}
+    }catch(e){console.warn('helyi data/ nem elérhető',e);}
+  }
+  const roads=await overpass(qRoads(),'Úthálózat');
+  let bg={elements:[]};
+  try{bg=await overpass(qBg(),'Háttér (víz, park, vasút)');}catch(e){console.warn('háttér kimaradt',e);}
+  const j={elements:roads.elements.concat(bg.elements),t:Date.now()}; cacheSet(j); return j;
+}
+function manualLinks(){
+  const u=q=>ENDPOINTS[0]+'?data='+encodeURIComponent(q);
+  return `<br><br>Kézi megoldás: nyisd meg <a href="${u(qRoads())}" target="_blank" rel="noopener">ezt a linket</a> (úthálózat, kötelező) és ha kell, <a href="${u(qBg())}" target="_blank" rel="noopener">ezt</a> (háttér) egy új fülön, mentsd el a JSON-t (Ctrl+S), majd töltsd be az „OSM-fájl betöltése” gombbal.`;
+}
+let G,results=[],layers={};
+const routeLayers=[], state={sel:-1,visible:ROUTES.map(()=>true)};
+
+function bearing(a,b){const r=Math.PI/180;const dx=(b[1]-a[1])*Math.cos(a[0]*r),dy=b[0]-a[0];return Math.atan2(dx,dy)/r;}
+function along(coords,every,offset){
+  const out=[];let acc=0,next=offset;
+  for(let i=0;i+1<coords.length;i++){
+    const a=coords[i],b=coords[i+1],d=hav(a[0],a[1],b[0],b[1]);
+    while(next<=acc+d&&d>0){const f=(next-acc)/d;out.push({p:[a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f],h:bearing(a,b)});next+=every;}
+    acc+=d;
+  }
+  return out;
+}
+const arrowIcon=(c,h)=>L.divIcon({className:'arrow',iconSize:[18,18],iconAnchor:[9,9],html:`<svg width="18" height="18" viewBox="0 0 18 18" style="transform:rotate(${h}deg)"><path d="M9 1 L16 15 L9 11 L2 15 Z" fill="${c}" stroke="#fff" stroke-width="1.5"/></svg>`});
+const chevIcon=h=>L.divIcon({className:'chev',iconSize:[12,12],iconAnchor:[6,6],html:`<svg width="12" height="12" viewBox="0 0 12 12" style="transform:rotate(${h}deg)"><path d="M2 9 L6 3 L10 9" fill="none" stroke="#111" stroke-width="2"/></svg>`});
+const signIcon=s=>L.divIcon({className:'sign',iconSize:[26,26],iconAnchor:[13,13],html:`<div>${s}</div>`});
+
+const HWSTYLE={motorway:[7,'#f2b26b'],trunk:[7,'#f2b26b'],primary:[6,'#f7d08a'],secondary:[5.5,'#fbe7b0'],tertiary:[5,'#ffffff'],unclassified:[4,'#ffffff'],residential:[4,'#ffffff'],living_street:[3.5,'#f1f1f1'],service:[2.5,'#ffffff'],road:[3.5,'#ffffff']};
+function drawBase(){
+  builtin.clearLayers();
+  const fills=[],rails=[],cas=[],fil=[];
+  for(const f of G.bg){
+    const t=f.t;
+    if(t.railway){rails.push(f.c);continue;}
+    const col=t.natural==='water'?'#b5d0e8':t.landuse==='cemetery'?'#d5e3d0':'#d8ebc8';
+    fills.push(L.polygon(f.c,{pane:'base',stroke:false,fillColor:col,fillOpacity:1,interactive:false}));
+  }
+  for(const w of G.ways){
+    const k=w.tags.highway.replace('_link',''),st=HWSTYLE[k]||[3,'#fff'],c=wayCoords(w); if(c.length<2) continue;
+    cas.push(L.polyline(c,{pane:'base',color:'#b9bec4',weight:st[0]+2,interactive:false}));
+    fil.push(L.polyline(c,{pane:'base',color:st[1],weight:st[0],interactive:false}));
+  }
+  [...fills,L.polyline(rails,{pane:'base',color:'#8a8f96',weight:2,dashArray:'6 4',interactive:false}),...cas,...fil].forEach(l=>builtin.addLayer(l));
+  updateLabels();
+}
+let labelLayer=L.layerGroup().addTo(map);
+function updateLabels(){
+  labelLayer.clearLayers();
+  if(!G||map.getZoom()<16) return;
+  const b=map.getBounds(),done=[];
+  for(const w of G.ways){
+    const nm=w.tags.name; if(!nm) continue;
+    const c=wayCoords(w); if(c.length<2) continue;
+    const m=c[Math.floor(c.length/2)]; if(!b.contains(m)) continue;
+    if(done.some(d=>d.n===nm&&hav(d.p[0],d.p[1],m[0],m[1])<250)) continue;
+    done.push({n:nm,p:m}); if(done.length>180) break;
+    labelLayer.addLayer(L.marker(m,{pane:'labels',interactive:false,keyboard:false,icon:L.divIcon({className:'lbl',iconSize:null,html:`<span>${nm}</span>`})}));
+  }
+}
+map.on('moveend',updateLabels);
+function wayCoords(w){return w.idx.filter(i=>i>=0).map(i=>[G.lat[i],G.lon[i]]);}
+
+function drawRoutes(){
+  results.forEach((r,ri)=>{
+    const R=ROUTES[ri],col=COLORS[ri],am=R.cat==='AM';
+    const coords=r.nodesPath.map(i=>[G.lat[i],G.lon[i]]);
+    const line=L.polyline(coords,{pane:'routes',color:col,weight:4.5,opacity:.85,dashArray:am?'9 7':null,lineJoin:'round'})
+      .bindTooltip(`${R.code} · ${(r.total/1000).toFixed(1)} km`,{sticky:true}).on('click',()=>select(ri));
+    const arrows=along(coords,320,120).map(a=>L.marker(a.p,{icon:arrowIcon(col,a.h),pane:'marks',interactive:false,keyboard:false}));
+    routeLayers[ri]={line,arrows:L.layerGroup(arrows),coords};
+  });
+  applyVisibility();
+}
+
+function drawOverlays(){
+  ['speedL','onewayL'].forEach(k=>{if(layers[k])map.removeLayer(layers[k]);});
+  const whole=$('tScope').checked;
+  const used=new Set();
+  results.forEach((r,ri)=>{if(state.visible[ri]&&(ROUTES[ri].cat!=='AM'||$('tAM').checked)) for(const e of r.edges) used.add(G.way[e]);});
+  const pick=whole?G.ways.map((_,i)=>i):[...used];
+  const sp=[],ow=[],signs=[];
+  for(const wi of pick){
+    const w=G.ways[wi],c=wayCoords(w); if(c.length<2) continue;
+    const t=w.tags,nm=t.name||'(névtelen)';
+    if(w.limit!=null&&SPEEDCOL(w.limit)){
+      const extra=[t['maxspeed:forward']&&`előre: ${t['maxspeed:forward']}`,t['maxspeed:backward']&&`hátra: ${t['maxspeed:backward']}`,t['maxspeed:conditional']&&`feltételes: ${t['maxspeed:conditional']}`].filter(Boolean).join('<br>');
+      sp.push(L.polyline(c,{pane:'speed',color:SPEEDCOL(w.limit),weight:13,opacity:.42,lineCap:'butt'}).bindPopup(`<b>${nm}</b><br>Korlát: ${w.limit} km/h${t.maxspeed?` (maxspeed=${t.maxspeed})`:t.highway==='living_street'?' (lakó-pihenő övezet)':''}${extra?'<br>'+extra:''}`));
+      const m=c[Math.floor(c.length/2)];
+      if(!signs.some(s=>s.v===w.limit&&hav(s.p[0],s.p[1],m[0],m[1])<220)) signs.push({v:w.limit,p:m});
+    }
+    if(w.dir!==0){
+      const cc=w.dir===1?c:[...c].reverse();
+      ow.push(L.polyline(cc,{pane:'oneway',color:'#111',weight:2,opacity:.8,dashArray:'5 5'}).bindPopup(`<b>${nm}</b><br>Egyirányú${t.junction==='roundabout'?' (körforgalom)':''}`));
+      const pts=whole?along(cc,1e9,Math.max(5,lenOf(cc)/2)):along(cc,110,40);
+      for(const a of pts) ow.push(L.marker(a.p,{icon:chevIcon(a.h),pane:'oneway',interactive:false,keyboard:false}));
+    }
+  }
+  for(const s of signs) sp.push(L.marker(s.p,{icon:signIcon(s.v),pane:'marks',interactive:false,keyboard:false}));
+  layers.speedL=L.layerGroup(sp); layers.onewayL=L.layerGroup(ow);
+  if($('tSpeed').checked) layers.speedL.addTo(map);
+  if($('tOneway').checked) layers.onewayL.addTo(map);
+}
+function lenOf(c){let s=0;for(let i=0;i+1<c.length;i++)s+=hav(c[i][0],c[i][1],c[i+1][0],c[i+1][1]);return s;}
+
+function applyVisibility(){
+  routeLayers.forEach((L_,ri)=>{
+    if(!L_) return;
+    const show=state.visible[ri]&&(ROUTES[ri].cat!=='AM'||$('tAM').checked);
+    const dim=state.sel>=0&&state.sel!==ri;
+    L_.line.setStyle({opacity:dim?.12:.85,weight:state.sel===ri?6:4.5});
+    if(show){L_.line.addTo(map); if(!dim) L_.arrows.addTo(map); else map.removeLayer(L_.arrows);} else {map.removeLayer(L_.line);map.removeLayer(L_.arrows);}
+    if(state.sel===ri&&show) L_.line.bringToFront();
+  });
+  document.querySelectorAll('#routes li').forEach((li,i)=>{li.classList.toggle('sel',state.sel===i);li.querySelector('input').checked=state.visible[i];});
+}
+function select(ri){
+  state.sel=state.sel===ri?-1:ri; state.visible[ri]=true;
+  applyVisibility(); drawOverlays();
+  if(state.sel>=0) map.fitBounds(routeLayers[ri].line.getBounds(),{padding:[30,30]});
+}
+
+function renderList(){
+  $('routes').innerHTML=ROUTES.map((R,ri)=>{
+    const r=results[ri];
+    const seq=R.items.map((s,i)=>r&&r.missing.has(i)?`<span class="miss" title="Nem található az OSM-ben">${s}</span>`:s).join(' → ');
+    const w=r&&r.warns.length?`<div class="warn">${r.warns.join('<br>')}</div>`:'';
+    return `<li data-i="${ri}"><div class="rh"><input type="checkbox" aria-label="${R.code} megjelenítése" checked><span class="sw" style="background:${R.cat==='AM'?`repeating-linear-gradient(90deg,${COLORS[ri]} 0 6px,transparent 6px 10px)`:COLORS[ri]}"></span><span class="code">${R.code}</span><span class="cat">${R.cat}</span><span class="km">${r?(r.total/1000).toFixed(1)+' km':''}</span></div><div class="seq">${seq}</div>${w}</li>`;
+  }).join('');
+  document.querySelectorAll('#routes li').forEach(li=>{
+    const i=+li.dataset.i;
+    li.querySelector('input').addEventListener('click',ev=>{ev.stopPropagation();state.visible[i]=ev.target.checked;if(!ev.target.checked&&state.sel===i)state.sel=-1;applyVisibility();drawOverlays();});
+    li.addEventListener('click',()=>select(i));
+  });
+}
+renderList();
+
+$('tSpeed').onchange=e=>{e.target.checked?layers.speedL&&layers.speedL.addTo(map):layers.speedL&&map.removeLayer(layers.speedL);};
+$('tOneway').onchange=e=>{e.target.checked?layers.onewayL&&layers.onewayL.addTo(map):layers.onewayL&&map.removeLayer(layers.onewayL);};
+$('tScope').onchange=()=>G&&drawOverlays();
+$('tAM').onchange=()=>{applyVisibility();G&&drawOverlays();};
+$('bAll').onclick=()=>{state.visible=state.visible.map(()=>true);state.sel=-1;applyVisibility();G&&drawOverlays();};
+$('bNone').onclick=()=>{state.visible=state.visible.map(()=>false);state.sel=-1;applyVisibility();G&&drawOverlays();};
+$('bReload').onclick=()=>run(true);
+$('bFile').onclick=()=>$('fFile').click();
+$('fFile').onchange=async e=>{
+  try{
+    let els=[];
+    for(const f of e.target.files){const j=JSON.parse(await f.text());if(!j.elements)throw new Error(f.name+': nem Overpass JSON');els=els.concat(j.elements);}
+    const d={elements:els,t:Date.now()}; cacheSet(d); run(false,d);
+  }catch(err){setStatus('A fájl nem olvasható: '+err.message,'err');}
+  e.target.value='';
+};
+$('bGpx').onclick=()=>{
+  if(!results.length) return;
+  const trk=results.map((r,ri)=>`<trk><name>${ROUTES[ri].code}</name><desc>${ROUTES[ri].items.join(' - ')}</desc><trkseg>${r.nodesPath.map(i=>`<trkpt lat="${G.lat[i].toFixed(6)}" lon="${G.lon[i].toFixed(6)}"/>`).join('')}</trkseg></trk>`).join('\n');
+  const gpx=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="vizsgautvonalak" xmlns="http://www.topografix.com/GPX/1/1">\n${trk}\n</gpx>`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([gpx],{type:'application/gpx+xml'}));a.download='vizsgautvonalak-F-BP-289-306.gpx';a.click();
+};
+
+async function run(force,preloaded){
+  try{
+    routeLayers.forEach(l=>{if(l){map.removeLayer(l.line);map.removeLayer(l.arrows);}}); routeLayers.length=0;
+    const data=preloaded||await fetchOSM(force);
+    setStatus('Úthálózat felépítése…'); await new Promise(r=>setTimeout(r,20));
+    G=buildGraph(data.elements); prepare(G);
+    const kozma=matchWays(G,'Kozma u.').ways;
+    const startNode=nearestNode(G,START.lat,START.lon,nodesOf(G,kozma));
+    results=[];
+    for(let ri=0;ri<ROUTES.length;ri++){
+      setStatus(`Útvonalak számítása: ${ROUTES[ri].code}`); await new Promise(r=>setTimeout(r,0));
+      results.push(resolveRoute(G,ROUTES[ri],startNode,kozma));
+    }
+    drawBase(); renderList(); drawRoutes(); drawOverlays();
+    const miss=results.reduce((s,r)=>s+r.missing.size,0), wn=results.reduce((s,r)=>s+r.warns.length,0);
+    setStatus(`${ROUTES.length} útvonal kész.${miss?` ${miss} utcanév nem található (aláhúzva).`:''}${wn?` ${wn} figyelmeztetés.`:''}`, miss||wn?'':'ok');
+  }catch(e){
+    console.error(e);
+    setStatus('Nem sikerült letölteni az OSM-adatokat. ('+e.message+')','err'); statusEl.innerHTML+=manualLinks();
+  }
+}
+run(false);
+</script>
+</body>
+</html>
