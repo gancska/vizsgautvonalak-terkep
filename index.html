@@ -28,6 +28,10 @@ h1{font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:600;font-size:24
 button{font:inherit;font-size:13px;padding:5px 10px;border:1px solid #b9c0c7;background:#fff;border-radius:5px;cursor:pointer;color:var(--ink)}
 button:hover{background:#f1f3f5}
 button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outline-offset:2px}
+.listhead{position:sticky;top:0;z-index:2;background:#fff;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:14px}
+.listhead label{display:flex;align-items:center;gap:8px;cursor:pointer}
+#cnt{color:var(--muted);font-weight:400}
+#routes li.off .code,#routes li.off .seq{opacity:.45}
 .legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;font-size:13px}
 .lg{display:flex;align-items:center;gap:6px}
 .sw{width:22px;height:8px;border-radius:2px;flex:none}
@@ -68,10 +72,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outl
     <div class="row"><label><input type="checkbox" id="tSpeed" checked> Sebességkorlátozások</label></div>
     <div class="row"><label><input type="checkbox" id="tOneway" checked> Egyirányú utcák (fekete szaggatott + nyíl a megengedett irányba)</label></div>
     <div class="row"><label><input type="checkbox" id="tScope"> Teljes környék (nem csak az útvonalak utcái)</label></div>
-    <div class="row"><label><input type="checkbox" id="tAM" checked> AM kategória útvonalai</label></div>
     <div class="btns">
-      <button id="bAll">Összes útvonal</button>
-      <button id="bNone">Egyik sem</button>
       <button id="bGpx">GPX letöltése</button>
       <button id="bReload">Adatok frissítése</button>
       <button id="bFile">OSM-fájl betöltése</button>
@@ -81,6 +82,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outl
   <div class="group">
     <h2>Jelmagyarázat</h2>
     <div class="legend" id="legend"></div>
+  </div>
+  <div class="listhead">
+    <label><input type="checkbox" id="tMaster" checked> <b>Útvonalak</b> <span id="cnt"></span></label>
+    <span class="btns" style="margin:0">
+      <button id="bAll">Mindet</button><button id="bNone">Egyiket sem</button><button id="bA">Csak A</button><button id="bAM">Csak AM</button>
+    </span>
   </div>
   <ul id="routes"></ul>
 </aside>
@@ -376,6 +383,9 @@ function manualLinks(){
 }
 let G,results=[],layers={};
 const routeLayers=[], state={sel:-1,visible:ROUTES.map(()=>true)};
+const routeRenderer=L.svg({pane:'routes'});
+const routesGroup=L.layerGroup().addTo(map);
+let runToken=0;
 
 function bearing(a,b){const r=Math.PI/180;const dx=(b[1]-a[1])*Math.cos(a[0]*r),dy=b[0]-a[0];return Math.atan2(dx,dy)/r;}
 function along(coords,every,offset){
@@ -430,10 +440,10 @@ function drawRoutes(){
   results.forEach((r,ri)=>{
     const R=ROUTES[ri],col=COLORS[ri],am=R.cat==='AM';
     const coords=r.nodesPath.map(i=>[G.lat[i],G.lon[i]]);
-    const line=L.polyline(coords,{pane:'routes',color:col,weight:4.5,opacity:.85,dashArray:am?'9 7':null,lineJoin:'round'})
+    const line=L.polyline(coords,{pane:'routes',renderer:routeRenderer,color:col,weight:4.5,opacity:.85,dashArray:am?'9 7':null,lineJoin:'round'})
       .bindTooltip(`${R.code} · ${(r.total/1000).toFixed(1)} km`,{sticky:true}).on('click',()=>select(ri));
     const arrows=along(coords,320,120).map(a=>L.marker(a.p,{icon:arrowIcon(col,a.h),pane:'marks',interactive:false,keyboard:false}));
-    routeLayers[ri]={line,arrows:L.layerGroup(arrows),coords};
+    routeLayers[ri]={line,arrows:L.layerGroup(arrows),group:L.layerGroup([line]),coords};
   });
   applyVisibility();
 }
@@ -442,7 +452,7 @@ function drawOverlays(){
   ['speedL','onewayL'].forEach(k=>{if(layers[k])map.removeLayer(layers[k]);});
   const whole=$('tScope').checked;
   const used=new Set();
-  results.forEach((r,ri)=>{if(state.visible[ri]&&(ROUTES[ri].cat!=='AM'||$('tAM').checked)) for(const e of r.edges) used.add(G.way[e]);});
+  results.forEach((r,ri)=>{if(state.visible[ri]) for(const e of r.edges) used.add(G.way[e]);});
   const pick=whole?G.ways.map((_,i)=>i):[...used];
   const sp=[],ow=[],signs=[];
   for(const wi of pick){
@@ -469,20 +479,30 @@ function drawOverlays(){
 function lenOf(c){let s=0;for(let i=0;i+1<c.length;i++)s+=hav(c[i][0],c[i][1],c[i+1][0],c[i+1][1]);return s;}
 
 function applyVisibility(){
-  routeLayers.forEach((L_,ri)=>{
-    if(!L_) return;
-    const show=state.visible[ri]&&(ROUTES[ri].cat!=='AM'||$('tAM').checked);
-    const dim=state.sel>=0&&state.sel!==ri;
-    L_.line.setStyle({opacity:dim?.12:.85,weight:state.sel===ri?6:4.5});
-    if(show){L_.line.addTo(map); if(!dim) L_.arrows.addTo(map); else map.removeLayer(L_.arrows);} else {map.removeLayer(L_.line);map.removeLayer(L_.arrows);}
-    if(state.sel===ri&&show) L_.line.bringToFront();
+  routeLayers.forEach((R_,ri)=>{
+    if(!R_) return;
+    const show=state.visible[ri], dim=state.sel>=0&&state.sel!==ri;
+    if(!show){ routesGroup.removeLayer(R_.group); R_.group.removeLayer(R_.arrows); return; }
+    routesGroup.addLayer(R_.group);
+    R_.line.setStyle({opacity:dim?.15:.85,weight:state.sel===ri?6:4.5});
+    if(dim) R_.group.removeLayer(R_.arrows); else R_.group.addLayer(R_.arrows);
+    if(state.sel===ri) R_.line.bringToFront();
   });
-  document.querySelectorAll('#routes li').forEach((li,i)=>{li.classList.toggle('sel',state.sel===i);li.querySelector('input').checked=state.visible[i];});
+  const n=state.visible.filter(Boolean).length, m=$('tMaster');
+  m.checked=n===ROUTES.length; m.indeterminate=n>0&&n<ROUTES.length;
+  $('cnt').textContent=`(${n}/${ROUTES.length} látható)`;
+  document.querySelectorAll('#routes li').forEach((li,i)=>{li.classList.toggle('sel',state.sel===i);li.classList.toggle('off',!state.visible[i]);li.querySelector('input').checked=state.visible[i];});
+}
+function setVisible(fn){
+  state.visible=ROUTES.map((R,i)=>fn(R,i));
+  if(state.sel>=0&&!state.visible[state.sel]) state.sel=-1;
+  applyVisibility(); G&&drawOverlays();
 }
 function select(ri){
-  state.sel=state.sel===ri?-1:ri; state.visible[ri]=true;
+  if(!state.visible[ri]){ state.visible[ri]=true; state.sel=ri; }
+  else state.sel=state.sel===ri?-1:ri;
   applyVisibility(); drawOverlays();
-  if(state.sel>=0) map.fitBounds(routeLayers[ri].line.getBounds(),{padding:[30,30]});
+  if(state.sel>=0&&routeLayers[ri]) map.fitBounds(routeLayers[ri].line.getBounds(),{padding:[30,30]});
 }
 
 function renderList(){
@@ -490,22 +510,26 @@ function renderList(){
     const r=results[ri];
     const seq=R.items.map((s,i)=>r&&r.missing.has(i)?`<span class="miss" title="Nem található az OSM-ben">${s}</span>`:s).join(' → ');
     const w=r&&r.warns.length?`<div class="warn">${r.warns.join('<br>')}</div>`:'';
-    return `<li data-i="${ri}"><div class="rh"><input type="checkbox" aria-label="${R.code} megjelenítése" checked><span class="sw" style="background:${R.cat==='AM'?`repeating-linear-gradient(90deg,${COLORS[ri]} 0 6px,transparent 6px 10px)`:COLORS[ri]}"></span><span class="code">${R.code}</span><span class="cat">${R.cat}</span><span class="km">${r?(r.total/1000).toFixed(1)+' km':''}</span></div><div class="seq">${seq}</div>${w}</li>`;
+    return `<li data-i="${ri}"><div class="rh"><input type="checkbox" aria-label="${R.code} megjelenítése"${state.visible[ri]?' checked':''}><span class="sw" style="background:${R.cat==='AM'?`repeating-linear-gradient(90deg,${COLORS[ri]} 0 6px,transparent 6px 10px)`:COLORS[ri]}"></span><span class="code">${R.code}</span><span class="cat">${R.cat}</span><span class="km">${r?(r.total/1000).toFixed(1)+' km':''}</span></div><div class="seq">${seq}</div>${w}</li>`;
   }).join('');
   document.querySelectorAll('#routes li').forEach(li=>{
     const i=+li.dataset.i;
-    li.querySelector('input').addEventListener('click',ev=>{ev.stopPropagation();state.visible[i]=ev.target.checked;if(!ev.target.checked&&state.sel===i)state.sel=-1;applyVisibility();drawOverlays();});
+    const cb=li.querySelector('input');
+    cb.addEventListener('click',ev=>ev.stopPropagation());
+    cb.addEventListener('change',ev=>{state.visible[i]=ev.target.checked;if(!ev.target.checked&&state.sel===i)state.sel=-1;applyVisibility();G&&drawOverlays();});
     li.addEventListener('click',()=>select(i));
   });
 }
-renderList();
+renderList(); applyVisibility();
 
 $('tSpeed').onchange=e=>{e.target.checked?layers.speedL&&layers.speedL.addTo(map):layers.speedL&&map.removeLayer(layers.speedL);};
 $('tOneway').onchange=e=>{e.target.checked?layers.onewayL&&layers.onewayL.addTo(map):layers.onewayL&&map.removeLayer(layers.onewayL);};
 $('tScope').onchange=()=>G&&drawOverlays();
-$('tAM').onchange=()=>{applyVisibility();G&&drawOverlays();};
-$('bAll').onclick=()=>{state.visible=state.visible.map(()=>true);state.sel=-1;applyVisibility();G&&drawOverlays();};
-$('bNone').onclick=()=>{state.visible=state.visible.map(()=>false);state.sel=-1;applyVisibility();G&&drawOverlays();};
+$('tMaster').onchange=e=>setVisible(()=>e.target.checked);
+$('bAll').onclick=()=>setVisible(()=>true);
+$('bNone').onclick=()=>setVisible(()=>false);
+$('bA').onclick=()=>setVisible(R=>R.cat!=='AM');
+$('bAM').onclick=()=>setVisible(R=>R.cat==='AM');
 $('bReload').onclick=()=>run(true);
 $('bFile').onclick=()=>$('fFile').click();
 $('fFile').onchange=async e=>{
@@ -525,8 +549,10 @@ $('bGpx').onclick=()=>{
 
 async function run(force,preloaded){
   try{
-    routeLayers.forEach(l=>{if(l){map.removeLayer(l.line);map.removeLayer(l.arrows);}}); routeLayers.length=0;
+    const my=++runToken;
+    routesGroup.clearLayers(); routeLayers.length=0;
     const data=preloaded||await fetchOSM(force);
+    if(my!==runToken) return;
     setStatus('Úthálózat felépítése…'); await new Promise(r=>setTimeout(r,20));
     G=buildGraph(data.elements); prepare(G);
     const kozma=matchWays(G,'Kozma u.').ways;
@@ -534,8 +560,11 @@ async function run(force,preloaded){
     results=[];
     for(let ri=0;ri<ROUTES.length;ri++){
       setStatus(`Útvonalak számítása: ${ROUTES[ri].code}`); await new Promise(r=>setTimeout(r,0));
+      if(my!==runToken) return;
       results.push(resolveRoute(G,ROUTES[ri],startNode,kozma));
     }
+    if(my!==runToken) return;
+    routesGroup.clearLayers(); routeLayers.length=0;
     drawBase(); renderList(); drawRoutes(); drawOverlays();
     const miss=results.reduce((s,r)=>s+r.missing.size,0), wn=results.reduce((s,r)=>s+r.warns.length,0);
     setStatus(`${ROUTES.length} útvonal kész.${miss?` ${miss} utcanév nem található (aláhúzva).`:''}${wn?` ${wn} figyelmeztetés.`:''}`, miss||wn?'':'ok');
