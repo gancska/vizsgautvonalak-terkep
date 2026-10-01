@@ -1,0 +1,1 @@
+# vizsgautvonalak-terkep
