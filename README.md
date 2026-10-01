@@ -1,4 +1,3 @@
-# Vizsgaútvonalak – Kozma u. 3 (F/BP/289–306)
 
 Interactive map of the motorcycle exam routes, built from OpenStreetMap data.
 
