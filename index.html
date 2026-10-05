@@ -48,6 +48,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outl
 .seq{font-size:12.5px;color:var(--muted);margin:4px 0 0 30px;line-height:1.45}
 .seq .miss{color:#a10f25;text-decoration:underline dotted}
 .warn{font-size:12px;color:#8a5a00;margin:3px 0 0 30px}
+.living{font-size:12px;color:#7a1f5c;margin:3px 0 0 30px}
+.links{display:flex;gap:6px;margin:6px 0 0 30px}
+.links a,.links button{font-size:12px;padding:3px 8px;border:1px solid #b9c0c7;border-radius:5px;background:#fff;color:var(--ink);text-decoration:none;cursor:pointer}
+.links a:hover,.links button:hover{background:#f1f3f5}
+.links a:focus-visible{outline:2px solid var(--sign-blue);outline-offset:2px}
 #map{height:100%;background:#f4f5f6}
 .arrow,.chev,.sign{background:none;border:none}
 .arrow svg,.chev svg{display:block}
@@ -71,9 +76,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outl
     <h2>Rétegek</h2>
     <div class="row"><label><input type="checkbox" id="tSpeed" checked> Sebességkorlátozások</label></div>
     <div class="row"><label><input type="checkbox" id="tOneway" checked> Egyirányú utcák (fekete szaggatott + nyíl a megengedett irányba)</label></div>
+    <div class="row"><label><input type="checkbox" id="tLiving" checked> Lakó-pihenő övezetek (lila)</label></div>
     <div class="row"><label><input type="checkbox" id="tScope"> Teljes környék (nem csak az útvonalak utcái)</label></div>
     <div class="btns">
-      <button id="bGpx">GPX letöltése</button>
+      <button id="bGpx">GPX letöltése (egy fájl)</button>
+      <button id="bGpxZip">GPX-ek külön (ZIP)</button>
+      <button id="bLinksTxt">Google Maps linkek (.txt)</button>
+      <button id="bLinksCopy">Linkek másolása</button>
       <button id="bReload">Adatok frissítése</button>
       <button id="bFile">OSM-fájl betöltése</button>
       <input type="file" id="fFile" accept=".json,application/json,.txt" multiple hidden>
@@ -95,6 +104,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign-blue);outl
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script id="core">
 const START = {lat:47.48366, lon:19.17518};
 const BBOX = [47.400, 19.080, 47.535, 19.320];
@@ -263,7 +273,7 @@ function resolveRoute(G,route,startNode,kozmaWays){
     if(POI[label]) return {label,poi:POI[label]};
     const m=matchWays(G,label); return {label,ways:m.ways,how:m.how};
   });
-  const nodesPath=[startNode], edgesAll=[], warns=[];
+  const nodesPath=[startNode], edgesAll=[], warns=[], legs=[];
   let cur=startNode, prevStep=steps[0];
   const missing=new Set();
   const runLeg=(targets,pref,label)=>{
@@ -276,7 +286,7 @@ function resolveRoute(G,route,startNode,kozmaWays){
     let L=0; for(const e of r.edges) L+=G.len[e];
     if(L>7000) warns.push(`${label}: hosszú szakasz (${(L/1000).toFixed(1)} km) – lehet, hogy rossz azonos nevű utcát talált`);
     for(const e of r.edges) edgesAll.push(e);
-    nodesPath.push(...r.path.slice(1)); cur=r.node; return true;
+    nodesPath.push(...r.path.slice(1)); legs.push({label,path:r.path}); cur=r.node; return true;
   };
   for(let i=1;i<steps.length;i++){
     const s=steps[i];
@@ -300,9 +310,41 @@ function resolveRoute(G,route,startNode,kozmaWays){
   }
   runLeg(new Set([startNode]),kozmaWays,'vissza a telephelyre');
   let total=0; for(const e of edgesAll) total+=G.len[e];
-  return {steps,missing,nodesPath,edges:edgesAll,warns,total};
+  return {steps,missing,nodesPath,edges:edgesAll,warns,total,legs};
 }
 function prepare(G){ edgeFrom=new Int32Array(G.to.length); }
+const isLiving=t=>t.highway==='living_street'||t['source:maxspeed']==='HU:living_street'||t['maxspeed:type']==='HU:living_street';
+function livingCrossings(G,r){
+  const hits=new Map();
+  for(const e of r.edges){const w=G.ways[G.way[e]];if(!isLiving(w.tags))continue;const k=w.tags.name||'(névtelen)';hits.set(k,(hits.get(k)||0)+G.len[e]);}
+  return [...hits].map(([name,m])=>({name,m}));
+}
+// Node -> 1 if used by a single way (mid-block), 2 if a junction
+function junctionDegree(G){
+  const seen=new Map();
+  G.ways.forEach((w,wi)=>w.idx.forEach(i=>{if(i<0)return;const k=seen.get(i);if(k===undefined)seen.set(i,wi);else if(k!==wi)seen.set(i,-1);}));
+  const D=new Uint8Array(G.n);for(const [i,v] of seen)D[i]=v===-1?2:1;return D;
+}
+// Google Maps directions link: max 9 waypoints, placed mid-block so Google can't snap onto a side street
+function gmapsLink(G,r,startNode,DEG){
+  const d=(a,b)=>hav(G.lat[a],G.lon[a],G.lat[b],G.lon[b]);
+  let W=[];
+  for(const L of r.legs){
+    const p=L.path,cum=[0];for(let k=1;k<p.length;k++)cum.push(cum[k-1]+d(p[k-1],p[k]));
+    const tot=cum[cum.length-1];if(tot<150)continue;
+    const n=Math.max(1,Math.round(tot/2500));
+    for(let j=1;j<=n;j++){const t=tot*j/(n+1);const k=Math.max(0,cum.findIndex(c=>c>=t));let best=k;
+      search:for(let dd=0;dd<p.length;dd++)for(const kk of [k-dd,k+dd])if(kk>0&&kk<p.length-1&&DEG[p[kk]]===1){best=kk;break search;}
+      W.push(p[best]);}
+  }
+  W=W.filter(i=>d(i,startNode)>400);
+  while(W.length>9){let bi=0,bd=1e9;for(let k=0;k<W.length;k++){const v=Math.min(d(k?W[k-1]:startNode,W[k]),d(W[k],k<W.length-1?W[k+1]:startNode));if(v<bd){bd=v;bi=k;}}W.splice(bi,1);}
+  const P=i=>G.lat[i].toFixed(5)+','+G.lon[i].toFixed(5);
+  return 'https://www.google.com/maps/dir/?api=1&origin='+P(startNode)+'&destination='+P(startNode)+(W.length?'&waypoints='+W.map(P).join('%7C'):'')+'&travelmode=driving';
+}
+const xmlEsc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+function gpxTrack(G,R,r){return `<trk><name>${xmlEsc(R.code)} (${xmlEsc(R.cat)})</name><desc>${xmlEsc(R.items.join(' - '))}</desc><trkseg>\n${r.nodesPath.map(i=>`<trkpt lat="${G.lat[i].toFixed(6)}" lon="${G.lon[i].toFixed(6)}"/>`).join('\n')}\n</trkseg></trk>`;}
+const gpxWrap=t=>`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="vizsgautvonalak" xmlns="http://www.topografix.com/GPX/1/1">\n${t}\n</gpx>\n`;
 </script>
 
 <script>
@@ -332,6 +374,7 @@ function legend(){
   $('legend').innerHTML=items.map(([c,t])=>`<span class="lg"><span class="sw" style="background:${c};opacity:.55"></span>${t}</span>`).join('')+
   `<span class="lg"><span class="sw" style="background:repeating-linear-gradient(90deg,#111 0 4px,transparent 4px 8px)"></span>Egyirányú</span>`+
   `<span class="lg"><span class="signmini">30</span>Táblaérték</span>`+
+  `<span class="lg"><span class="sw" style="background:repeating-linear-gradient(90deg,#9c27b0 0 3px,transparent 3px 7px)"></span>Lakó-pihenő övezet</span>`+
   `<span class="lg"><span class="sw" style="background:#555"></span>Útvonal (szín/útvonal)</span>`+
   `<span class="lg"><span class="sw" style="background:repeating-linear-gradient(90deg,#555 0 6px,transparent 6px 10px)"></span>AM útvonal</span>`;
 }
@@ -381,7 +424,7 @@ function manualLinks(){
   const u=q=>ENDPOINTS[0]+'?data='+encodeURIComponent(q);
   return `<br><br>Kézi megoldás: nyisd meg <a href="${u(qRoads())}" target="_blank" rel="noopener">ezt a linket</a> (úthálózat, kötelező) és ha kell, <a href="${u(qBg())}" target="_blank" rel="noopener">ezt</a> (háttér) egy új fülön, mentsd el a JSON-t (Ctrl+S), majd töltsd be az „OSM-fájl betöltése” gombbal.`;
 }
-let G,results=[],layers={};
+let G,results=[],layers={},startNodeG=-1;
 const routeLayers=[], state={sel:-1,visible:ROUTES.map(()=>true)};
 const routeRenderer=L.svg({pane:'routes'});
 const routesGroup=L.layerGroup().addTo(map);
@@ -449,12 +492,12 @@ function drawRoutes(){
 }
 
 function drawOverlays(){
-  ['speedL','onewayL'].forEach(k=>{if(layers[k])map.removeLayer(layers[k]);});
+  ['speedL','onewayL','livingL'].forEach(k=>{if(layers[k])map.removeLayer(layers[k]);});
   const whole=$('tScope').checked;
   const used=new Set();
   results.forEach((r,ri)=>{if(state.visible[ri]) for(const e of r.edges) used.add(G.way[e]);});
   const pick=whole?G.ways.map((_,i)=>i):[...used];
-  const sp=[],ow=[],signs=[];
+  const sp=[],ow=[],signs=[],lv=[];
   for(const wi of pick){
     const w=G.ways[wi],c=wayCoords(w); if(c.length<2) continue;
     const t=w.tags,nm=t.name||'(névtelen)';
@@ -464,6 +507,7 @@ function drawOverlays(){
       const m=c[Math.floor(c.length/2)];
       if(!signs.some(s=>s.v===w.limit&&hav(s.p[0],s.p[1],m[0],m[1])<220)) signs.push({v:w.limit,p:m});
     }
+    if(isLiving(t)) lv.push(L.polyline(c,{pane:'speed',color:'#9c27b0',weight:9,opacity:.75,dashArray:'2 6',lineCap:'round'}).bindPopup(`<b>${nm}</b><br>Lakó-pihenő övezet`));
     if(w.dir!==0){
       const cc=w.dir===1?c:[...c].reverse();
       ow.push(L.polyline(cc,{pane:'oneway',color:'#111',weight:2,opacity:.8,dashArray:'5 5'}).bindPopup(`<b>${nm}</b><br>Egyirányú${t.junction==='roundabout'?' (körforgalom)':''}`));
@@ -472,9 +516,10 @@ function drawOverlays(){
     }
   }
   for(const s of signs) sp.push(L.marker(s.p,{icon:signIcon(s.v),pane:'marks',interactive:false,keyboard:false}));
-  layers.speedL=L.layerGroup(sp); layers.onewayL=L.layerGroup(ow);
+  layers.speedL=L.layerGroup(sp); layers.onewayL=L.layerGroup(ow); layers.livingL=L.layerGroup(lv);
   if($('tSpeed').checked) layers.speedL.addTo(map);
   if($('tOneway').checked) layers.onewayL.addTo(map);
+  if($('tLiving').checked) layers.livingL.addTo(map);
 }
 function lenOf(c){let s=0;for(let i=0;i+1<c.length;i++)s+=hav(c[i][0],c[i][1],c[i+1][0],c[i+1][1]);return s;}
 
@@ -509,13 +554,17 @@ function renderList(){
   $('routes').innerHTML=ROUTES.map((R,ri)=>{
     const r=results[ri];
     const seq=R.items.map((s,i)=>r&&r.missing.has(i)?`<span class="miss" title="Nem található az OSM-ben">${s}</span>`:s).join(' → ');
+    const lv=r&&r.living&&r.living.length?`<div class="living">Lakó-pihenő övezeten halad át: ${r.living.map(x=>`${x.name} (~${Math.round(x.m/10)*10} m)`).join(', ')}</div>`:'';
+    const links=r&&r.gmaps?`<div class="links"><a href="${r.gmaps}" target="_blank" rel="noopener">Google Maps</a><button type="button" data-gpx="${ri}">GPX</button></div>`:'';
     const w=r&&r.warns.length?`<div class="warn">${r.warns.join('<br>')}</div>`:'';
-    return `<li data-i="${ri}"><div class="rh"><input type="checkbox" aria-label="${R.code} megjelenítése"${state.visible[ri]?' checked':''}><span class="sw" style="background:${R.cat==='AM'?`repeating-linear-gradient(90deg,${COLORS[ri]} 0 6px,transparent 6px 10px)`:COLORS[ri]}"></span><span class="code">${R.code}</span><span class="cat">${R.cat}</span><span class="km">${r?(r.total/1000).toFixed(1)+' km':''}</span></div><div class="seq">${seq}</div>${w}</li>`;
+    return `<li data-i="${ri}"><div class="rh"><input type="checkbox" aria-label="${R.code} megjelenítése"${state.visible[ri]?' checked':''}><span class="sw" style="background:${R.cat==='AM'?`repeating-linear-gradient(90deg,${COLORS[ri]} 0 6px,transparent 6px 10px)`:COLORS[ri]}"></span><span class="code">${R.code}</span><span class="cat">${R.cat}</span><span class="km">${r?(r.total/1000).toFixed(1)+' km':''}</span></div><div class="seq">${seq}</div>${lv}${links}</li>`;
   }).join('');
   document.querySelectorAll('#routes li').forEach(li=>{
     const i=+li.dataset.i;
     const cb=li.querySelector('input');
     cb.addEventListener('click',ev=>ev.stopPropagation());
+    li.querySelectorAll('.links a').forEach(a=>a.addEventListener('click',ev=>ev.stopPropagation()));
+    const gb=li.querySelector('[data-gpx]'); if(gb) gb.addEventListener('click',ev=>{ev.stopPropagation();download(gpxWrap(gpxTrack(G,ROUTES[i],results[i])),fileName(ROUTES[i])+'.gpx','application/gpx+xml');});
     cb.addEventListener('change',ev=>{state.visible[i]=ev.target.checked;if(!ev.target.checked&&state.sel===i)state.sel=-1;applyVisibility();G&&drawOverlays();});
     li.addEventListener('click',()=>select(i));
   });
@@ -524,6 +573,7 @@ renderList(); applyVisibility();
 
 $('tSpeed').onchange=e=>{e.target.checked?layers.speedL&&layers.speedL.addTo(map):layers.speedL&&map.removeLayer(layers.speedL);};
 $('tOneway').onchange=e=>{e.target.checked?layers.onewayL&&layers.onewayL.addTo(map):layers.onewayL&&map.removeLayer(layers.onewayL);};
+$('tLiving').onchange=e=>{e.target.checked?layers.livingL&&layers.livingL.addTo(map):layers.livingL&&map.removeLayer(layers.livingL);};
 $('tScope').onchange=()=>G&&drawOverlays();
 $('tMaster').onchange=e=>setVisible(()=>e.target.checked);
 $('bAll').onclick=()=>setVisible(()=>true);
@@ -540,11 +590,31 @@ $('fFile').onchange=async e=>{
   }catch(err){setStatus('A fájl nem olvasható: '+err.message,'err');}
   e.target.value='';
 };
+function download(data,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+const fileName=R=>R.code.replace(/\//g,'-');
+const visibleIdx=()=>ROUTES.map((_,i)=>i).filter(i=>state.visible[i]&&results[i]);
 $('bGpx').onclick=()=>{
-  if(!results.length) return;
-  const trk=results.map((r,ri)=>`<trk><name>${ROUTES[ri].code}</name><desc>${ROUTES[ri].items.join(' - ')}</desc><trkseg>${r.nodesPath.map(i=>`<trkpt lat="${G.lat[i].toFixed(6)}" lon="${G.lon[i].toFixed(6)}"/>`).join('')}</trkseg></trk>`).join('\n');
-  const gpx=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="vizsgautvonalak" xmlns="http://www.topografix.com/GPX/1/1">\n${trk}\n</gpx>`;
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([gpx],{type:'application/gpx+xml'}));a.download='vizsgautvonalak-F-BP-289-306.gpx';a.click();
+  const ids=visibleIdx(); if(!ids.length) return;
+  download(gpxWrap(ids.map(i=>gpxTrack(G,ROUTES[i],results[i])).join('\n')),'vizsgautvonalak.gpx','application/gpx+xml');
+};
+$('bGpxZip').onclick=async()=>{
+  const ids=visibleIdx(); if(!ids.length) return;
+  if(!window.JSZip){setStatus('A ZIP-könyvtár nem töltődött be; használd az útvonalanként GPX gombokat.','err');return;}
+  const z=new JSZip(); ids.forEach(i=>z.file(fileName(ROUTES[i])+'.gpx',gpxWrap(gpxTrack(G,ROUTES[i],results[i]))));
+  download(await z.generateAsync({type:'blob'}),'vizsgautvonalak-gpx.zip');
+};
+function linksText(){
+  const ids=visibleIdx();
+  return 'Forgalmi vizsgaútvonalak – Safety-Hungary, 1108 Budapest, Kozma u. 3\n'+
+    'Minden útvonal a Kozma u. 3-tól indul és oda érkezik vissza. A linkek legfeljebb 9 köztes ponttal rögzítik az útvonalat; a pontok között a Google választ utat, ezért vesd össze az utcasorrenddel.\n\n'+
+    ids.map(i=>{const R=ROUTES[i],r=results[i];return `${R.code} [${R.cat}] (${(r.total/1000).toFixed(1)} km): ${R.items.join(' → ')}`+(r.living.length?`\n  Lakó-pihenő övezet: ${r.living.map(x=>x.name).join(', ')}`:'')+`\n${r.gmaps}`;}).join('\n\n')+
+    '\n\nForrás: '+location.href.split('#')[0]+'\n';
+}
+$('bLinksTxt').onclick=()=>{if(visibleIdx().length) download(linksText(),'vizsgautvonalak-google-maps.txt','text/plain;charset=utf-8');};
+$('bLinksCopy').onclick=async()=>{
+  if(!visibleIdx().length) return;
+  try{await navigator.clipboard.writeText(linksText());setStatus(`${visibleIdx().length} útvonal linkje a vágólapra másolva.`,'ok');}
+  catch{setStatus('A böngésző nem engedte a másolást; használd a .txt letöltést.','err');}
 };
 
 async function run(force,preloaded){
@@ -563,6 +633,8 @@ async function run(force,preloaded){
       if(my!==runToken) return;
       results.push(resolveRoute(G,ROUTES[ri],startNode,kozma));
     }
+    const DEG=junctionDegree(G);
+    for(const r of results){ r.living=livingCrossings(G,r); r.gmaps=gmapsLink(G,r,startNode,DEG); }
     if(my!==runToken) return;
     routesGroup.clearLayers(); routeLayers.length=0;
     drawBase(); renderList(); drawRoutes(); drawOverlays();
